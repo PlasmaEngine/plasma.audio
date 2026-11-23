@@ -1,0 +1,270 @@
+#pragma once
+
+#include <EditorUi/Content.h>
+#include <EditorUi/Tabs.h>
+#include <Foundation/Containers/Map.h>
+#include <Foundation/Types/UniquePtr.h>
+#include <Foundation/Types/Uuid.h>
+#include <GameUiPlugin/Elements/UiDrawList.h>
+
+class plDocument;
+class plDocumentObject;
+struct plEditorUiKeyEvent;
+struct plEditorUiPointerEvent;
+
+/// \brief Engine-drawn instrument timeline of the Audio Event window, with the parameter tabs above it.
+///
+/// One row per instrument: a header with the track colour, name, routing and state, the M (saved Mute) and S
+/// (session solo) toggles, and the clip block at its start delay with the waveform peaks of its longest entry. Below
+/// the rows the Logic lane shows the fade in and stop fade and the Automation lane one chip per automation. Clicking
+/// selects, dragging a clip moves its start delay (10 ms snap), dragging the loop and fade handles edits them,
+/// double-clicking a header renames the instrument. Every drag is one undo step, written on release.
+///
+/// Ctrl+wheel zooms around the pointer, F fits the event, clicking the ruler moves the cursor auditions start from, and
+/// Space plays or stops. While auditioning, the playhead follows the engine process and sounding tracks light up.
+///
+/// The Markers lane under the ruler shows the timeline markers (named flags the game gets as messages) and the sustain
+/// points (where the playhead waits for key-off). Its "+ Marker" and "+ Sustain" buttons add one at the cursor;
+/// double-clicking the lane adds a marker there, Shift+double-click a sustain point. Both drag along the lane, and
+/// double-clicking a marker renames it. A track whose playlist plays another event
+/// shows that event's name; double-clicking its clip opens it.
+///
+/// A parameter tab turns the x-axis into that parameter's range: each instrument placed on the parameter shows its
+/// range with the fade ramps on both sides (drag the top edges to change the range), and dragging elsewhere in the
+/// lanes, or the arrow keys, scrub the value the audition plays with.
+class plEditorUiAudioEventTimeline : public plEditorUiContent
+{
+public:
+  explicit plEditorUiAudioEventTimeline(plDocument* pDocument);
+  ~plEditorUiAudioEventTimeline() override;
+
+  /// Re-reads the document: instruments, parameters, markers and the selection.
+  void Refresh();
+
+  /// Forgets the measured lengths of embedded sound files (one of them changed).
+  void ClearDurationCache();
+
+  /// Session-only solo: while any track is solo, auditioning plays only solo tracks.
+  bool IsSolo(const plUuid& instrumentGuid) const { return m_SoloTracks.Contains(instrumentGuid); }
+  bool HasSolo() const { return !m_SoloTracks.IsEmpty(); }
+
+  /// The "+ Sheet" tab was clicked: a new parameter sheet.
+  plDelegate<void()> m_OnAddParameter;
+
+  /// Space: play or stop the audition.
+  plDelegate<void()> m_OnTogglePlay;
+
+  /// A parameter's audition value was scrubbed.
+  plDelegate<void(const plString&, float)> m_OnAuditionValueChanged;
+
+  /// The clip of a track that plays another event was double-clicked: the asset GUID of that event.
+  plDelegate<void(const plString&)> m_OnOpenEvent;
+
+  /// Where auditions start, in seconds (set by clicking the ruler).
+  double GetCursor() const { return m_fCursor; }
+
+  /// The value a parameter is auditioned with: the scrubbed value, else fDefault.
+  float GetAuditionValue(plStringView sParameter, float fDefault) const;
+
+  /// Scrubs a parameter's audition value, as dragging in its tab does (raises m_OnAuditionValueChanged).
+  void SetAuditionValue(const plString& sName, float fValue);
+
+  /// The audition's state: whether it plays, its timeline position and which instruments sound (one byte each).
+  void SetPlayback(bool bPlaying, double fPosition, plArrayPtr<const plUInt8> sounding);
+
+  /// Whether the audition's playhead waits at a sustain point for the key-off.
+  void SetHolding(bool bHolding);
+
+  /// Zooms so the whole event fits the width.
+  void FitView();
+
+  /// The height that shows the tabs, the ruler, every track and the lanes without scrolling.
+  float GetPreferredHeight() const { return GetCanvasTop() + GetContentSize().y; }
+
+protected:
+  void OnUiUpdate() override;
+  void OnUiEvent(const plMsgUiEvent& event) override;
+
+private:
+  enum class DragHandle
+  {
+    None,
+    LoopStart,
+    LoopEnd,
+    FadeIn,
+    FadeOut,
+    RangeMin, ///< parameter tab: the low edge of an instrument's range
+    RangeMax  ///< parameter tab: the high edge of an instrument's range
+  };
+
+  enum class HitKind
+  {
+    Clip,
+    Header,
+    Mute,
+    Solo,
+    Chip,
+    Marker, ///< a marker or sustain point in the Markers lane
+  };
+
+  struct Hit
+  {
+    HitKind m_Kind = HitKind::Clip;
+    plUuid m_Guid;
+    plRectFloat m_Rect;
+  };
+
+  const plDocumentObject* GetPropertiesObject() const;
+  void GatherInstruments(plHybridArray<const plDocumentObject*, 8>& out_instruments) const;
+  double GetSampleDuration(plStringView sFile) const;
+  double GetEntryDuration(const plDocumentObject* pEntry) const;
+  double GetLongestEntry(const plDocumentObject* pInstrument, const plDocumentObject** out_pEntry = nullptr) const;
+
+  /// Whether the instrument plays a nested event for a length of its own: it plays an event and does not loop.
+  bool HasNestedLength(const plDocumentObject* pInstrument) const;
+
+  /// How long the instrument sounds on the timeline: its nested event's length when it has one (see HasNestedLength),
+  /// else its longest entry. 0 when unknown.
+  double GetInstrumentLength(const plDocumentObject* pInstrument) const;
+
+  /// Waveform overview of an entry, peak magnitudes 0..1 over its length: the built clip's header peaks, or decoded
+  /// from an embedded sound file. Empty when unknown.
+  const plDynamicArray<float>& GetEntryPeaks(const plDocumentObject* pEntry) const;
+
+  /// The parameter a tab shows: an entry of Parameters, or the built-in Distance (0 to MaxDistance) of a spatialized
+  /// event that has no parameter of that name.
+  struct TabParameter
+  {
+    plString m_sName;
+    float m_fMin = 0.0f;
+    float m_fMax = 1.0f; ///< greater than m_fMin
+    float m_fDefault = 0.0f;
+  };
+
+  // parameter tabs
+  bool GetCurrentParameter(TabParameter& out_parameter) const;
+  bool IsParameterTab() const;
+  float ValueToX(const TabParameter& parameter, float fValue) const;
+  float XToValue(const TabParameter& parameter, float x) const;
+  void DrawParameterRuler(const plRectFloat& canvas, const TabParameter& parameter);
+  void DrawParameterTrack(const plDocumentObject* pInstrument, plUInt32 uiIndex, const TabParameter& parameter, bool bAnySolo, const plUuid& selected);
+  DragHandle PickRangeHandle(const plVec2& vPos, plUuid& out_instrumentGuid) const;
+  void ApplyRangeDrag(float x, bool bFinal);
+  double GetInstrumentDelay(const plDocumentObject* pInstrument) const;
+  double GetMarkerValue(const char* szProperty, DragHandle handle) const;
+  double GetTimeExtent() const;
+
+  float GetCanvasTop() const;
+
+  /// Where the tracks begin: under the ruler, and on the Timeline tab under the Markers lane.
+  float GetLanesTop() const;
+  float TimeToX(double fSeconds) const;
+  double XToTime(float x) const;
+  float GetRowTop(plUInt32 uiRow) const;
+  plVec2 GetContentSize() const;
+  void ClampScroll();
+
+  void BuildDocument();
+  void UpdateTabs();
+  void Draw();
+  void DrawRuler(const plRectFloat& canvas, double fExtent, bool bLoopRegion);
+  void DrawTrackHeader(const plDocumentObject* pInstrument, plUInt32 uiIndex, plStringView sSub, bool bAnySolo, bool bSelected, bool bSounding);
+  void DrawTrack(const plDocumentObject* pInstrument, plUInt32 uiIndex, bool bAnySolo, const plString& sOutputBus, const plUuid& selected);
+  void DrawLanes(plUInt32 uiInstruments, const plUuid& selected);
+  void DrawMarkerLane(const plRectFloat& canvas, const plUuid& selected);
+
+  /// The time of a marker or sustain point, or where it is being dragged to.
+  double GetPointTime(const plDocumentObject* pPoint) const;
+
+  /// The asset GUID of the event the instrument's playlist plays, or empty when it plays no event.
+  plString GetNestedEvent(const plDocumentObject* pInstrument) const;
+
+  /// Adds a marker (or with bSustain a sustain point) at fTime, rounded to 10 ms.
+  void AddMarker(double fTime, bool bSustain);
+
+  void OnPointer(const plEditorUiPointerEvent& e);
+  void OnKey(const plEditorUiKeyEvent& e);
+  void OnTabChanged(plUInt32 uiTab);
+  const Hit* FindHit(const plVec2& vPos) const;
+  DragHandle PickHandle(const plVec2& vPos) const;
+
+  /// The instrument whose nested event clip has its length grip (the clip's right edge) under vPos, else invalid.
+  plUuid PickNestedLengthGrip(const plVec2& vPos) const;
+  void ApplyHandleDrag(DragHandle handle, float x, bool bFinal);
+  void ToggleMute(const plUuid& instrumentGuid);
+  void ToggleSolo(const plUuid& instrumentGuid);
+
+  void BeginRename(const plUuid& instrumentGuid);
+  void CommitRename();
+  void CancelRename();
+
+  plDocument* m_pDocument = nullptr;
+
+  plDynamicArray<Hit> m_Hits;
+  mutable plMap<plString, double> m_DurationCache; ///< file path -> seconds (0 = could not decode)
+  mutable plMap<plString, plDynamicArray<float>> m_PeakCache; ///< clip GUID or file path -> peaks
+
+  // zoom, the audition cursor and the playback the engine process reports
+  double m_fPixelsPerSecond = 120.0;
+  double m_fCursor = 0.0;
+  bool m_bPlaying = false;
+  double m_fPlayhead = 0.0;
+  plDynamicArray<plUInt8> m_Sounding;
+
+  // parameter tabs: the auditioned values (session), scrubbing, and a range edge being dragged
+  plMap<plString, float> m_AuditionValues;
+  bool m_bScrubbing = false;
+  plUuid m_RangeDragGuid;
+  float m_fRangeDragValue = 0.0f;
+  plHybridArray<plUuid, 8> m_SoloTracks;
+
+  // tabs: Timeline and one per parameter
+  plUniquePtr<plEditorUiTabs> m_pTabs;
+  plHybridArray<plString, 8> m_TabLabels;
+  plHybridArray<plUuid, 8> m_TabParameters; ///< invalid for the Timeline tab and the built-in Distance tab
+  plUInt32 m_uiBuiltInDistanceTab = plInvalidIndex;
+  plUInt32 m_uiCurrentTab = 0;
+  float m_fAddTabX = 0.0f;
+
+  // marker drag: previewed live, written to the document once on release
+  DragHandle m_ActiveHandle = DragHandle::None;
+  bool m_bHandlePreviewValid = false;
+  double m_fHandlePreview = 0.0;
+
+  // clip drag: moves an instrument's StartDelay along the timeline
+  plUuid m_DragClipGuid;
+  bool m_bDraggingClip = false;
+  double m_fDragClipDelay = 0.0;
+  double m_fDragGrabOffset = 0.0;
+
+  // marker drag: moves a marker's or sustain point's Time along the Markers lane
+  plUuid m_DragMarkerGuid;
+  bool m_bDraggingMarker = false;
+  double m_fDragMarkerTime = 0.0;
+
+  bool m_bHolding = false;
+
+  // nested length drag: the right edge of a nested event's clip on a non-looping track sets how long it plays
+  plUuid m_ResizeGuid;
+  bool m_bResizingNested = false;
+  double m_fResizeLength = 0.0;
+
+  // the "+ Marker" and "+ Sustain" buttons in the Markers lane's header: they add at the cursor
+  plRectFloat m_AddMarkerRect = plRectFloat(0, 0, 0, 0);
+  plRectFloat m_AddSustainRect = plRectFloat(0, 0, 0, 0);
+
+  // inline rename of a track; it commits once its field had focus and lost it
+  plUuid m_RenameGuid;
+  bool m_bRenameHadFocus = false;
+
+  float m_fScrollX = 0.0f;
+  float m_fScrollY = 0.0f;
+
+  bool m_bRebuild = true;
+  bool m_bDrawDirty = true;
+  plVec2 m_vBuiltSize = plVec2::MakeZero();
+  plUiDrawListWriter m_Writer;
+  plEventSubscriptionID m_PointerSubscription = 0;
+  plEventSubscriptionID m_KeySubscription = 0;
+  plEventSubscriptionID m_TabSubscription = 0;
+};

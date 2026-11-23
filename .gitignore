@@ -1,0 +1,40 @@
+# Build output
+Bin/
+Binaries/
+Intermediate/
+Output/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.link.rsp
+
+# Generated Qt sources (moc/uic/rcc). Hand-written *.moc.cpp files are source and stay tracked;
+# generated moc output lives under Intermediate/.
+*_moc.cpp
+ui_*.h
+qrc_*.cpp
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Packaged output - blobs are release assets, never repository content
+*.plpkg
+_blobs/
+
+# Editor / OS
+.vs/
+.vscode/
+*.user
+Thumbs.db
+.DS_Store
+
+# Regenerated at publish time by PackageInspector --write-checksums.
+# A committed copy goes stale the moment anything ships.
+Package.sha256
+
+# Asset transform output
+AssetCache/

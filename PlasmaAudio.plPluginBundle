@@ -1,0 +1,18 @@
+PluginInfo
+{
+	string %DisplayName{"PlasmaAudio"}
+	string %Category{"Audio"}
+	string %Icon{"PlasmaAudioIcon.png"}
+	string %Banner{"PlasmaAudioBanner.png"}
+	string %MinEngineVersion{"0.12.1"}
+	string %MaxEngineVersion{"0.12.1"}
+	string %Description{"PlasmaAudio: event-based audio with mixer, snapshots and DSP. Built on miniaudio, compiled into the plugin."}
+	string %EditorPlugins{"plEditorPluginPlasmaAudio"}
+	string %EditorEnginePlugins{"plEnginePluginPlasmaAudio"}
+	string %RuntimePlugins{"plPlasmaAudioPlugin"}
+	string %PackageDependencies{}
+	string %RequiredPlugins{}
+	string %ExclusiveFeatures{"Sound"}
+	string %EnabledInTemplates{"General2D", "General3D"}
+	string %PlasmaBuildTargetName{"PlasmaAudioPlugin"}
+}

@@ -1,0 +1,46 @@
+// plasma.audio — PlasmaAudio.
+//
+// The AUTHORED manifest, kept in source next to the plugin. Component hashes and sizes are NOT
+// here: the packaging step computes those and emits them into the published manifest.
+//
+// Field reference and validation rules: Docs/PluginPackageManagerPlan.html §05.
+
+PackageInfo
+{
+	string %Id{"plasma.audio"}
+	string %Version{"2.2.1"}
+	string %Publisher{"PlasmaTechnology"}
+	string %License{"MIT"}
+	string %Homepage{"https://plasmagameengine.com"}
+
+	string %MinEngineVersion{"0.12.1"}
+	string %MaxEngineVersion{"0.12.1"}
+	string %AbiTag{"win64-msvc19-0.12.1-abi7-dev"}
+
+	string %DisplayName{"PlasmaAudio"}
+	string %Category{"Audio"}
+	string %Description{"PlasmaAudio: event-based audio with mixer, snapshots and DSP. Built on miniaudio, compiled into the plugin."}
+	string %Icon{"Branding/PlasmaAudioIcon.png"}
+	string %Banner{"Branding/PlasmaAudioBanner.png"}
+
+	string %EditorPlugins{"plEditorPluginPlasmaAudio"}
+	string %EditorEnginePlugins{"plEnginePluginPlasmaAudio"}
+	string %RuntimePlugins{"plPlasmaAudioPlugin"}
+	string %PackageDependencies{}
+
+	// ---- assets ---------------------------------------------------------------
+	// Mounted as a data directory when the package is installed. The layout below Assets/
+	// mirrors where this content sat inside the engine, so every shader include, shape icon
+	// lookup and asset reference resolves exactly as it did before.
+	Mount { string %Path{"Assets"} string %RootName{"plasma.audio"} bool %Writable{false} }
+
+	Component { string %Name{"assets"} string %Platform{"any"} }
+	Component { string %Name{"manifest"} string %Platform{"any"} }
+	Component { string %Name{"runtime-win64"} string %Platform{"win64"} }
+	Component { string %Name{"runtime-linux64"} string %Platform{"linux64"} string %AbiTag{"linux64-clang18-0.12.1-abi7-dev"} }
+	Component { string %Name{"runtime-macos64"} string %Platform{"macos64"} string %AbiTag{"macosarm64-clang17-0.12.1-abi7-dev"} }
+	Component { string %Name{"editor-win64"} string %Platform{"win64"} }
+	Component { string %Name{"tool"} string %Platform{"any"} string %Path{"EditorIcons"} }
+	Component { string %Name{"icon"} string %Platform{"any"} }
+	Component { string %Name{"banner"} string %Platform{"any"} }
+}

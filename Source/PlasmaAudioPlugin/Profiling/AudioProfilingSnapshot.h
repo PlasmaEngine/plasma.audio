@@ -1,0 +1,267 @@
+#pragma once
+
+#include <Foundation/Containers/DynamicArray.h>
+#include <Foundation/Containers/HybridArray.h>
+#include <Foundation/IO/Stream.h>
+#include <Foundation/Strings/String.h>
+#include <PlasmaAudioPlugin/PlasmaAudioPluginDLL.h>
+
+/// \brief Why a voice stops or stopped, as the editor's Audio Profiler shows it.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioStopReason
+{
+  using StorageType = plUInt8;
+
+  enum Enum : plUInt8
+  {
+    None,                ///< the voice plays on
+    Requested,           ///< the game stopped the instance, its entity, or its parent event
+    Finished,            ///< the voice ran out of data, or a limited nested event ran its length
+    StolenOldest,        ///< a new instance of the event's polyphony group replaced the oldest one
+    StolenQuietest,      ///< a new instance of the event's polyphony group replaced the quietest one
+    KilledAtStart,       ///< an event with the Kill virtual mode was not admitted by the voice budget at start
+    KilledVirtualised,   ///< an event with the Kill virtual mode lost a real voice to the voice budget
+    KilledVirtualBudget, ///< the virtual voice budget was full
+    Unloaded,            ///< the event or clip resource the voice reads was unloaded
+    Count
+  };
+
+  /// \brief Short lowercase name, e.g. "stolen" or "killed" followed by a middle dot and the detail.
+  static const char* GetName(Enum reason);
+
+  /// \brief Whether the voice was ended against the game's will: stolen or killed.
+  static bool IsForced(Enum reason);
+};
+
+/// \brief A parameter value of an event instance.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioVoiceParameterSnapshotEntry
+{
+  plString m_sName;
+  float m_fValue = 0.0f;
+};
+
+/// \brief One active voice of an event instance, as shown by the editor's Audio Profiler.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioVoiceSnapshotEntry
+{
+  enum State : plUInt8
+  {
+    Real = 0,
+    Virtual = 1,
+    Stopping = 2, ///< the voice's instance fades out; m_bVirtual tells whether the voice is real or virtual
+    Ended = 3,    ///< only in plAudioProfilingSnapshot::m_Ended
+  };
+
+  /// \brief The most parameters a voice entry carries.
+  static constexpr plUInt32 MaxParameters = 8;
+
+  /// \brief m_uiCodec and m_uiLoadMode of a voice that decodes a sample embedded in the event (no audio clip).
+  static constexpr plUInt8 Embedded = 0xFF;
+
+  plUInt32 m_uiId = 0;         ///< instance serial << 8 | voice slot; stable while the voice plays
+  plString m_sEvent;           ///< resource description of the event (its file path) or, without one, the resource id
+  plUInt64 m_uiEntityId = 0;   ///< audio system entity id; 0 without an entity
+  plUInt8 m_uiState = Real;    ///< State
+  plUInt8 m_uiPriority = 0;
+  plUInt8 m_uiCodec = Embedded;    ///< plAudioClipCodec::Enum or Embedded
+  plUInt8 m_uiLoadMode = Embedded; ///< plAudioClipLoadMode::Enum or Embedded
+  float m_fAudibility = 0.0f;  ///< the instance audibility the voice manager ranks by
+  float m_fDistance = 0.0f;    ///< entity to listener distance in meters
+  float m_fOcclusion = 0.0f;   ///< current occlusion of the entity, 0..1
+  float m_fVolume = 0.0f;      ///< linear voice volume (instance volume times the voice's base volume)
+  float m_fAge = 0.0f;         ///< seconds since the instance started
+  plString m_sBus;             ///< name of the mixer bus the instance plays on
+  plString m_sEntity;          ///< name the entity was registered with (its game object's name); empty without one
+  bool m_bVirtual = false;     ///< the voice plays without a decoding chain, also while its instance is stopping
+  plUInt8 m_uiStopReason = plAudioStopReason::None; ///< plAudioStopReason::Enum, set while stopping and once ended
+
+  /// The instance's parameter values (at most MaxParameters), in the order of the event's parameters.
+  plHybridArray<plAudioVoiceParameterSnapshotEntry, 2> m_Parameters;
+};
+
+/// \brief A voice that ended shortly before the snapshot, with its last values.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioEndedVoiceSnapshotEntry
+{
+  plAudioVoiceSnapshotEntry m_Voice; ///< m_uiState is plAudioVoiceSnapshotEntry::Ended
+  double m_fEndTime = 0.0;           ///< when the voice ended, on the event log's clock (seconds)
+};
+
+/// \brief One bus of the loaded mixer, as shown on the Buses tab of the editor's Audio Profiler.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioBusSnapshotEntry
+{
+  static constexpr plUInt8 NoParent = 0xFF;
+
+  plString m_sName;
+  plUInt8 m_uiParent = NoParent; ///< index of the parent bus in plAudioProfilingSnapshot::m_Buses, NoParent for the master bus
+  bool m_bIsAux = false;
+  float m_fGainDb = 0.0f; ///< the bus's own gain: bus volume with VCAs and snapshots applied
+  float m_fPeak = 0.0f;   ///< linear peak of the bus output
+  float m_fRms = 0.0f;    ///< linear RMS of the bus output
+};
+
+/// \brief One active mixer snapshot (intensity above 0).
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioActiveSnapshotEntry
+{
+  plString m_sName;
+  float m_fIntensity = 0.0f;
+};
+
+/// \brief One loaded audio clip resource.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioClipMemorySnapshotEntry
+{
+  plString m_sName;      ///< resource description or, without one, the resource id
+  plUInt8 m_uiLoadMode = 0; ///< plAudioClipLoadMode::Enum
+  plUInt8 m_uiCodec = 0;    ///< plAudioClipCodec::Enum
+  plUInt64 m_uiResidentBytes = 0;
+  plUInt32 m_uiStreams = 0; ///< open disk streams reading the clip
+};
+
+/// \brief One loaded audio event resource.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioEventMemorySnapshotEntry
+{
+  plString m_sName; ///< resource description or, without one, the resource id
+  plUInt64 m_uiSampleBytes = 0; ///< bytes of the embedded samples
+};
+
+/// \brief One bank loaded through the middleware.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioBankMemorySnapshotEntry
+{
+  enum State : plUInt8
+  {
+    Loading = 0, ///< the bank resource is still loading
+    Loaded = 1,  ///< the loads of its events and clips were started
+    Missing = 2, ///< the bank resource could not be loaded
+  };
+
+  plString m_sName;
+  plUInt32 m_uiEvents = 0;
+  plUInt32 m_uiClips = 0;
+  plUInt8 m_uiState = Loading; ///< State
+};
+
+/// \brief What an entry of the PlasmaAudio event log records.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioLogEventType
+{
+  using StorageType = plUInt8;
+
+  enum Enum : plUInt8
+  {
+    Start,            ///< an event instance started
+    Stop,             ///< an event instance was asked to stop
+    Finished,         ///< an event instance ended
+    Stolen,           ///< an event instance was stopped for a new instance of its polyphony group
+    CooldownRejected, ///< a start was dropped because the event's cooldown had not passed
+    CulledAtStart,    ///< a voice started virtual (not admitted by the voice budget or beyond the max distance)
+    Virtualised,      ///< a real voice became virtual
+    Realised,         ///< a virtual voice became real
+    Killed,           ///< a voice or instance was stopped by the voice budget
+    ClipMissing,      ///< a clip could not be loaded or cannot play; its playlist entry plays silence
+    ClipLoadWait,     ///< a voice waits for its clip to finish loading
+    DeviceLost,       ///< the output device changed and the audio engine is recreated
+    DeviceRecovered,  ///< the audio engine runs on the new output device
+    MixerLoaded,
+    BankLoaded,
+    BankUnloaded,
+    LanguageChanged,
+    LimitRejected,    ///< a start was dropped because the event's max instances were playing and it does not steal
+    EventLoadWait,    ///< a start waits for its event to finish loading
+    EventDropped,     ///< a waiting start was dropped: the event is missing, or a one-shot did not load in time
+    BudgetExceeded,   ///< a bank finished loading with the loaded content over a memory budget
+    StreamUnderrun,   ///< streamed voices ran out of data since the last audio update (detail: how often)
+    KeyOff,           ///< an event instance released a sustain point
+    Marker,           ///< an event instance passed a timeline marker (detail: its name)
+    OutputState,      ///< the output went through a suspend or resume (detail: the new state)
+    Count
+  };
+
+  /// \brief Short lowercase name of the type, e.g. "start".
+  static const char* GetName(Enum type);
+
+  /// \brief Whether the type is highlighted as a warning.
+  static bool IsWarning(Enum type);
+};
+
+/// \brief One entry of the PlasmaAudio event log.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioEventLogSnapshotEntry
+{
+  double m_fTime = 0.0; ///< seconds since the log was created
+  plUInt8 m_uiType = 0; ///< plAudioLogEventType::Enum
+  plString m_sName;     ///< event, bank, mixer or language the entry is about
+  plString m_sDetail;
+};
+
+/// \brief State of the PlasmaAudio voices, buses, memory and event log at one audio update, serialized for the
+/// editor's Audio Profiler.
+///
+/// The middleware produces it on the audio thread while PlasmaAudio.ProfilerSnapshotHz is above 0 and the game
+/// application publishes the serialized form as the stat "PlasmaAudio/VoiceSnapshot" (a plDataBuffer).
+///
+/// Version 2 adds the buses, memory and event log sections; data of version 1 reads with those sections empty.
+/// Version 3 adds the capture section (time, stream underruns, memory budget) and the voices' entity names.
+/// Version 4 adds the voices' virtual flag, stop reason and parameters, the ended voices, and the embedded sample bytes;
+/// m_uiMemoryBytes of older data is raised by the embedded samples of its events so that it means the same.
+struct PL_PLASMAAUDIOPLUGIN_DLL plAudioProfilingSnapshot
+{
+  static constexpr plUInt8 kSnapshotVersion = 4;
+
+  /// \brief How long ended voices stay in m_Ended, in seconds.
+  static constexpr double EndedWindow = 5.0;
+
+  plUInt32 m_uiRealVoices = 0;  ///< real voices, including real voices of stopping instances
+  plUInt32 m_uiVirtualVoices = 0;
+  plUInt32 m_uiMaxReal = 0;
+  plUInt32 m_uiMaxVirtual = 0;
+  plUInt32 m_uiInstances = 0;
+  plUInt32 m_uiStreams = 0;     ///< streamed clip voices reading from disk
+  float m_fDspLoad = 0.0f;      ///< time spent in the device callback mixing a period, as a fraction of the period
+  float m_fUpdateMs = 0.0f;     ///< wall time of the last audio update on the audio thread
+  plUInt64 m_uiMemoryBytes = 0; ///< audio data: clip sample data, stream rings and the events' embedded samples
+  plDynamicArray<plAudioVoiceSnapshotEntry> m_Voices;
+
+  /// Voices that ended within EndedWindow before the snapshot, oldest first. Filled while snapshots are enabled.
+  plDynamicArray<plAudioEndedVoiceSnapshotEntry> m_Ended;
+
+  /// \name Buses
+  /// Empty while no mixer is loaded.
+  ///@{
+  plString m_sMixer; ///< resource id of the loaded mixer
+  plDynamicArray<plAudioBusSnapshotEntry> m_Buses;
+  plDynamicArray<plAudioActiveSnapshotEntry> m_ActiveSnapshots;
+  ///@}
+
+  /// \name Memory
+  ///@{
+  plDynamicArray<plAudioClipMemorySnapshotEntry> m_Clips;
+  plDynamicArray<plAudioEventMemorySnapshotEntry> m_Events;
+  plDynamicArray<plAudioBankMemorySnapshotEntry> m_Banks;
+  plUInt64 m_uiClipResidentBytes = 0;   ///< sample data of all loaded clips
+  plUInt64 m_uiStreamRingBytes = 0;     ///< rings of the open and pooled streams
+  plUInt64 m_uiEmbeddedSampleBytes = 0; ///< samples embedded in the loaded events (the sum of m_Events)
+  plUInt32 m_uiPooledStreams = 0;
+  ///@}
+
+  /// \name Event log
+  /// The log entries the snapshot carries, oldest first, with consecutive sequence numbers starting at
+  /// m_uiEventLogFirstSequence. Consecutive snapshots overlap; a reader skips the sequence numbers it has already seen.
+  /// A first sequence number above the next one the reader expects means that entries were lost.
+  ///@{
+  plUInt64 m_uiEventLogFirstSequence = 0;
+  plDynamicArray<plAudioEventLogSnapshotEntry> m_EventLog;
+  ///@}
+
+  /// \name Capture
+  /// What a profiler capture lines snapshots up by and plots.
+  ///@{
+  double m_fTime = 0.0;                ///< when the snapshot was taken, on the event log's clock (seconds)
+  plUInt64 m_uiStreamUnderruns = 0;    ///< stream underruns since the middleware started
+  plUInt64 m_uiMemoryBudgetBytes = 0;  ///< total memory budget of the loaded banks, 0 without one
+  ///@}
+
+  void Clear();
+
+  void Write(plStreamWriter& inout_stream) const;
+
+  /// \brief Fails for data of a newer version or when the stream ends early.
+  plResult Read(plStreamReader& inout_stream);
+
+private:
+  plResult ReadSections(plStreamReader& inout_stream, plUInt8 uiVersion);
+};
