@@ -18,5 +18,9 @@ public class EditorPluginPlasmaAudioModule : ModuleRules
         // The clip, event and mixer windows and the Audio Profiler are engine-drawn: EditorUi and the retained UI runtime.
         PlasmaPackageSdk.AddImportLibrary(this, context, "plEditorUi");
         PlasmaPackageSdk.AddImportLibrary(this, context, "plGameUiPlugin");
+
+        // Each editor window keeps its own file-local helpers under the same names (GatherChildrenOfProperty, layout
+        // constants), which collide when the windows share a unity batch.
+        UseUnityBuild = false;
     }
 }

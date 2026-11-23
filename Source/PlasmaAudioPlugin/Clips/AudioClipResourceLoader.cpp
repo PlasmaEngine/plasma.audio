@@ -21,10 +21,10 @@ namespace
   plAtomicInteger32 s_iLanguageGeneration; ///< incremented under s_LanguageMutex whenever s_sLanguage changes
 
   /// Forwards reads to the file, counts the bytes and optionally keeps a copy of them.
-  class CountingReader final : public plStreamReader
+  class ClipCountingReader final : public plStreamReader
   {
   public:
-    explicit CountingReader(plStreamReader& ref_source)
+    explicit ClipCountingReader(plStreamReader& ref_source)
       : m_Source(ref_source)
     {
     }
@@ -133,7 +133,7 @@ plResourceLoadData plAudioClipResourceLoader::OpenDataStream(const plResource* p
   }
 #endif
 
-  CountingReader reader(file);
+  ClipCountingReader reader(file);
 
   plAssetFileHeader assetHeader;
   if (assetHeader.Read(reader).Failed())
